@@ -1,0 +1,227 @@
+cells:
+  - kind: 2
+    languageId: sql
+    value: "WITH BaseData AS (\r
+
+      \    -- your existing CTE (unchanged)\r
+
+      \    SELECT\r
+
+      \        mo.MfgOrderName AS OrderName,\r
+
+      \        ires.ResourceName,\r
+
+      \    CASE\r
+
+      \        WHEN ires.ResourceName LIKE 'HANA%' THEN 'Auto Sort'\r
+
+      \        WHEN ires.ResourceName LIKE 'IOM%'  THEN 'Assembly Auto'\r
+
+      \        WHEN ires.ResourceName LIKE 'YM%'   THEN 'Auto Sort'\r
+
+      \        WHEN ires.ResourceName LIKE 'IS%'   THEN 'Insert Mold'\r
+
+      \        WHEN ires.ResourceName LIKE 'IF%'   THEN 'Insert Mold'\r
+
+      \        WHEN ires.ResourceName LIKE 'ID%'   THEN 'Insert Mold'\r
+
+      \        WHEN ires.ResourceName LIKE 'OA%'   THEN 'Shimano'\r
+
+      \        WHEN ires.ResourceName LIKE 'OS%'   THEN 'Shimano'\r
+
+      \        WHEN ires.ResourceName LIKE 'S%'    THEN 'Stamping'\r
+
+      \        WHEN ires.ResourceName LIKE 'P%'    THEN 'Plating'\r
+
+      \        WHEN ires.ResourceName LIKE 'F%'    THEN 'Assembly Manual'\r
+
+      \        WHEN ires.ResourceName LIKE 'C%'    THEN 'Assembly Manual'\r
+
+      \        WHEN ires.ResourceName LIKE 'A%'    THEN 'Assembly Auto'\r
+
+      \        WHEN ires.ResourceName LIKE 'M%'    THEN 'Injection Mold'\r
+
+      \        WHEN ires.ResourceName LIKE 'O%'    THEN 'Insert Mold'\r
+
+      \        ELSE NULL\r
+
+      \    END AS Depts,\r
+
+      \r
+
+      \        os.OrderStatusName AS OrderStatus,\r
+
+      \        LEFT(pb.ProductName + ':' + p.ProductRevision,\r
+
+      \             CHARINDEX(':', pb.ProductName + ':' + p.ProductRevision +
+      ':') - 1) AS Part,\r
+
+      \        ipso.mlxTool AS Tool,\r
+
+      \        mo.PlannedStartDate AS PlannedStartDateDT,\r
+
+      \        mo.PlannedCompletionDate AS PlannedCompletionDateDT,\r
+
+      \        CAST(mo.Qty AS DECIMAL(18,4)) AS OrderQty,\r
+
+      \        CAST(wsr.isUnitsPerHour AS DECIMAL(18,6)) AS BaseQty\r
+
+      \    FROM EXCRSch.MfgOrder mo WITH (NOLOCK)\r
+
+      \    INNER JOIN EXCRSch.isPreactorScheduledOrders ipso WITH (NOLOCK)\r
+
+      \        ON ipso.MfgOrderId = mo.MfgOrderId\r
+
+      \    INNER JOIN EXCRSch.ResourceDef ires WITH (NOLOCK)\r
+
+      \        ON ires.ResourceId = ipso.ResourceId\r
+
+      \    INNER JOIN EXCRSch.OrderStatus os WITH (NOLOCK)\r
+
+      \        ON os.OrderStatusId = mo.OrderStatusId\r
+
+      \    INNER JOIN EXCRSch.Product p WITH (NOLOCK)\r
+
+      \        ON p.ProductId = mo.ProductId\r
+
+      \    INNER JOIN EXCRSch.ProductBase pb WITH (NOLOCK)\r
+
+      \        ON pb.ProductBaseId = p.ProductBaseId\r
+
+      \    LEFT JOIN EXCRSch.Workflow wf WITH (NOLOCK)\r
+
+      \        ON (\r
+
+      \            (mo.isWorkflowId = '0000000000000000' AND mo.isWorkflowBaseId
+      = wf.WorkflowBaseId)\r
+
+      \         OR (mo.isWorkflowId <> '0000000000000000' AND mo.isWorkflowId =
+      wf.WorkflowId)\r
+
+      \        )\r
+
+      \    LEFT JOIN (\r
+
+      \        SELECT\r
+
+      \            w.WorkflowId,\r
+
+      \            MIN(CAST(rs.isUnitsPerHour AS DECIMAL(18,6))) AS
+      isUnitsPerHour\r
+
+      \        FROM EXCRSch.Workflow w WITH (NOLOCK)\r
+
+      \        INNER JOIN EXCRSch.WorkflowStep ws WITH (NOLOCK)\r
+
+      \            ON ws.WorkflowId = w.WorkflowId\r
+
+      \        INNER JOIN EXCRSch.Spec s WITH (NOLOCK)\r
+
+      \            ON (s.SpecId = ws.SpecId OR s.SpecBaseId = ws.SpecBaseId)\r
+
+      \           AND s.mlxIsProductionSpec = 1\r
+
+      \        INNER JOIN EXCRSch.RouteStep rs WITH (NOLOCK)\r
+
+      \            ON rs.RouteStepId = ws.RouteStepId\r
+
+      \        GROUP BY w.WorkflowId\r
+
+      \    ) wsr\r
+
+      \        ON wsr.WorkflowId = wf.WorkflowId\r
+
+      \    WHERE mo.PlannedStartDate >= CAST(GETDATE() AS DATE)\r
+
+      \      AND mo.PlannedStartDate < DATEADD(DAY, 30, CAST(GETDATE() AS
+      DATE))\r
+
+      \      AND ISNULL(UPPER(LTRIM(RTRIM(os.OrderStatusName))), '') <> 'TECO'\r
+
+      \      AND CAST(mo.PlannedStartDate AS TIME) >= '07:58:00'\r
+
+      ),\r
+
+      \r
+
+      -- detect change per row\r
+
+      WithLag AS (\r
+
+      \    SELECT\r
+
+      \        *,\r
+
+      \        CASE\r
+
+      \        WHEN LAG(Tool) OVER (\r
+
+      \                PARTITION BY ResourceName, CAST(PlannedStartDateDT AS
+      DATE)\r
+
+      \                ORDER BY PlannedStartDateDT\r
+
+      \                ) IS NULL THEN 0\r
+
+      \        -- Handle when it is null \r
+
+      \        WHEN ISNULL(Tool, '') <> ISNULL(LAG(Tool) OVER (\r
+
+      \                PARTITION BY ResourceName, CAST(PlannedStartDateDT AS
+      DATE)\r
+
+      \                ORDER BY PlannedStartDateDT\r
+
+      \                ), '')\r
+
+      \            OR ISNULL(OrderName, '') <> ISNULL(LAG(OrderName) OVER (\r
+
+      \                PARTITION BY ResourceName, CAST(PlannedStartDateDT AS
+      DATE)\r
+
+      \                ORDER BY PlannedStartDateDT\r
+
+      \                ), '')\r
+
+      \        THEN 1\r
+
+      \        ELSE 0\r
+
+      \    END AS ChangeFlag\r
+
+      \    FROM BaseData\r
+
+      )\r
+
+      -- aggregate\r
+
+      SELECT\r
+
+      \    MAX(Depts) AS Depts,\r
+
+      \    ResourceName,\r
+
+      \    CAST(PlannedStartDateDT AS DATE) AS StartDate,\r
+
+      \    SUM(ChangeFlag) AS ChangeoverCount\r
+
+      FROM WithLag\r
+
+      GROUP BY\r
+
+      \    ResourceName,\r
+
+      \    CAST(PlannedStartDateDT AS DATE)\r
+
+      ORDER BY\r
+
+      \    ResourceName,\r
+
+      \    StartDate;"
+    metadata: {}
+metadata:
+  conn:
+    id: E-zqQDPHWfRBKsq1WKNMW
+    name: MLXVHAVWPOPDB03
+  database: STDS
+  schema: dbo
