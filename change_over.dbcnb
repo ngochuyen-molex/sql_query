@@ -152,34 +152,38 @@ cells:
 
       \        *,\r
 
-      \        CASE\r
+      \            CASE --skips counting only for the actual first row in the
+      partition, \r
 
-      \        WHEN LAG(Tool) OVER (\r
+      \            --every next rows gets evaluated regardless of tool is null
+      or not \r
 
-      \                PARTITION BY ResourceName, CAST(PlannedStartDateDT AS
+      \            WHEN ROW_NUMBER() OVER (\r
+
+      \                    PARTITION BY ResourceName, CAST(PlannedStartDateDT AS
       DATE)\r
 
-      \                ORDER BY PlannedStartDateDT\r
+      \                    ORDER BY PlannedStartDateDT\r
 
-      \                ) IS NULL THEN 0\r
+      \                ) = 1 THEN 0\r
 
-      \        -- Handle when it is null \r
+      \            -- ensures to reach this part\r
 
-      \        WHEN ISNULL(Tool, '') <> ISNULL(LAG(Tool) OVER (\r
+      \            WHEN ISNULL(Tool, '') <> ISNULL(LAG(Tool) OVER (\r
 
-      \                PARTITION BY ResourceName, CAST(PlannedStartDateDT AS
+      \                    PARTITION BY ResourceName, CAST(PlannedStartDateDT AS
       DATE)\r
 
-      \                ORDER BY PlannedStartDateDT\r
+      \                    ORDER BY PlannedStartDateDT\r
 
-      \                ), '')\r
+      \                    ), '')\r
 
       \            OR ISNULL(OrderName, '') <> ISNULL(LAG(OrderName) OVER (\r
 
-      \                PARTITION BY ResourceName, CAST(PlannedStartDateDT AS
+      \                    PARTITION BY ResourceName, CAST(PlannedStartDateDT AS
       DATE)\r
 
-      \                ORDER BY PlannedStartDateDT\r
+      \                    ORDER BY PlannedStartDateDT\r
 
       \                ), '')\r
 
